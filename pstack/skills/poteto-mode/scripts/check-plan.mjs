@@ -3,8 +3,12 @@ import fs from "node:fs";
 import process from "node:process";
 
 const RULE =
-	"Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.";
-const LANES = /Ten lanes on `[^`<>]+` at the PR head/;
+	"Tests alone are not sufficient verification. A PR is verified only when every check required by its execution profile and risk is complete.";
+const PROFILES = {
+	lean: { minLanes: 0, maxLanes: 1 },
+	balanced: { minLanes: 1, maxLanes: 3 },
+	"maximum-rigor": { minLanes: 10, maxLanes: 10 },
+};
 const SUB_BLOCKS = [
 	"Depends on.",
 	"Files.",
@@ -17,7 +21,7 @@ const SUB_BLOCKS = [
 	"Merge.",
 ];
 const PROGRAM_H3 = ["Arm the program", "Spawn owners", "PR mechanics", "Verdict and merge", "Boot recipe"];
-const PROGRAM_MARKERS = ["git show origin/main:", "/loop 1h", "status message"];
+const PROGRAM_MARKERS = ["git show origin/main:", "audit cadence", "status message"];
 const HOW_TO_READ_MARKERS = [
 	"One box is one unit of work",
 	"names the evidence",
@@ -73,6 +77,11 @@ const boxes = (ls) => ls.filter((l) => !l.code && BOX.test(l.text)).map((l) => (
 
 const h1 = lines.findIndex((l) => !l.code && l.text.startsWith("# "));
 if (h1 === -1) fail(1, "no H1 title");
+const profileLine = lines.find((l) => !l.code && /^\*\*Execution profile\.\*\*/.test(l.text));
+const profileMatch = profileLine?.text.match(/`(lean|balanced|maximum-rigor)`/);
+const profile = profileMatch?.[1];
+if (!profileLine) fail(1, 'no "**Execution profile.**" declaration');
+else if (!profile) fail(profileLine.n, "execution profile must be `lean`, `balanced`, or `maximum-rigor`");
 const howToRead = find("How to read this");
 if (!howToRead) fail(1, 'no "## How to read this" section');
 if (h1 !== -1 && howToRead) {
@@ -135,10 +144,21 @@ for (const pr of prSections) {
 
 	const live = block("Verify, live.");
 	if (live) {
-		if (!LANES.test(live.rest)) fail(live.n, `${pr.title}: Verify, live lacks "Ten lanes on \`<swarm workers model>\` at the PR head" with the model filled in`);
 		const lanes = boxes(live.lines).map((b) => ({ ...b, m: b.text.match(/^Lane (\d+)\. /) }));
 		const numbers = lanes.filter((b) => b.m).map((b) => Number(b.m[1])).sort((a, b) => a - b);
-		if (numbers.join(",") !== "1,2,3,4,5,6,7,8,9,10") fail(live.n, `${pr.title}: lanes are [${numbers.join(",")}], expected 1 to 10`);
+		const none = live.rest.slice(RULE.length).trim().startsWith("None.");
+		if (none && lanes.length) fail(live.n, `${pr.title}: Verify, live says None but has lanes`);
+		if (!none) {
+			if (!/\d+ lanes? on `[^`<>]+` at the PR head/.test(live.rest)) fail(live.n, `${pr.title}: Verify, live lacks a numeric lane count and filled model`);
+			const stated = Number(live.rest.match(/(\d+) lanes? on/)?.[1]);
+			if (stated !== lanes.length) fail(live.n, `${pr.title}: states ${stated} live lanes but defines ${lanes.length}`);
+		}
+		if (profile) {
+			const limits = PROFILES[profile];
+			if (lanes.length < limits.minLanes || lanes.length > limits.maxLanes) fail(live.n, `${pr.title}: ${profile} allows ${limits.minLanes} to ${limits.maxLanes} live lanes, found ${lanes.length}`);
+		}
+		const expected = Array.from({ length: lanes.length }, (_, index) => index + 1).join(",");
+		if (numbers.join(",") !== expected) fail(live.n, `${pr.title}: lanes are [${numbers.join(",")}], expected consecutive lanes from 1`);
 		for (const lane of lanes) {
 			if (!lane.m) fail(lane.n, `${pr.title}: live box is not a lane`);
 			else if (!/Save `[^`]+`/.test(lane.text)) fail(lane.n, `${pr.title}: lane ${lane.m[1]} names no screenshot`);
@@ -149,7 +169,10 @@ for (const pr of prSections) {
 	const perf = block("Verify, perf.");
 	if (perf) {
 		const items = boxes(perf.lines).map((b) => b.text.split(" ")[0]);
-		if (items.join("|") !== PERF_ITEMS.join("|")) fail(perf.n, `${pr.title}: perf boxes are [${items.join(", ")}], expected [${PERF_ITEMS.join(", ")}]`);
+		const none = perf.rest.slice(RULE.length).trim().startsWith("None.");
+		if (none && items.length) fail(perf.n, `${pr.title}: Verify, perf says None but has boxes`);
+		else if (none && profile === "maximum-rigor") fail(perf.n, `${pr.title}: maximum-rigor requires performance proof`);
+		else if (!none && items.join("|") !== PERF_ITEMS.join("|")) fail(perf.n, `${pr.title}: perf boxes are [${items.join(", ")}], expected [${PERF_ITEMS.join(", ")}]`);
 	}
 
 	const gate = block("Review gate.");
