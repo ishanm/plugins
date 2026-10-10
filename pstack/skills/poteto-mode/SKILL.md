@@ -88,6 +88,14 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 
 **No is an acceptable answer.** Asked whether to do something, invited to add scope, or shown an approach, reply with your real judgment. Decline, push back, or say "this doesn't earn its place" when true. A recommendation is a judgment, not a validation. Agreement is not the default, candor over sycophancy.
 
+## Execution profile
+
+Before delegating, read `references/execution-profiles.md` and resolve the run's execution profile. The execution profile controls fan-out, review depth, verification breadth, and scope expansion. It is separate from the model-effort budget configured by `/setup-pstack`.
+
+Use the operator's explicit profile when named. Otherwise read `# execution profile:` from `~/.cursor/rules/pstack-models.mdc`. Default to `balanced` when the rule or line is absent. State the selected profile before the first subagent starts.
+
+The profile's agent limit is recursive. Owners, reviewers, verifiers, retries, and agents spawned by other agents all count. At the limit, checkpoint completed work and ask before launching more. Never evade the limit by renaming a task, resuming a stopped agent, or starting a nested swarm.
+
 ## Subagents
 
 **Use `subagent_type: "poteto-agent"` for any subagent you spawn inside a playbook step** (code-writing delegates, ad-hoc helpers). `/poteto-mode` and `poteto-agent` route through the same wrapper. Routed workflow skills (`how`, `why`, `interrogate`, `reflect`, `swarm`) set their own `subagent_type` for diverse-model review. Respect what the skill prescribes, don't override to `poteto-agent`.
@@ -97,6 +105,8 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 You own every subagent's work. Review the diff and write your own summary, don't pass through what it said. A second opinion is the same prompt against a different model. Agreement is high-signal.
 
 **Fresh subagents by default.** Give new work to a fresh subagent with consolidated scope, meaning the original brief, every later directive, and the prior agent's report and branch. This holds for a fix round, a follow-up, a retry, and the next queue item. Resume, message, or queue a follow-up on an existing subagent only when the new work strictly needs state that lives in that agent and is costly to move: its local checkout, its uncommitted changes, or a process it still runs, such as a dev server, a simulator, or a babysit watcher. A stop or hold order to a running agent is not reuse. A role such as a PR owner outlives its agent. Once that agent returns, a fresh agent takes the role's next round. Interrupt-chained resumes silently drop directives, so fire a fresh subagent with consolidated scope rather than trusting a "done" summary.
+
+The execution profile may override the fresh-subagent default. In `lean` and `balanced`, keep an owner through its first fix round when it still has the checkout and task state. Use a fresh agent when the profile requires independent judgment, the context is degraded, or ownership changes.
 
 ## Writing the reply
 
